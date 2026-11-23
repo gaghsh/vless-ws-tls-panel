@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VLESS Panel</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --card:#151c31; --line:#29324d; --text:#edf2ff; --muted:#9da8c3; --blue:#5f8cff; --green:#2fc98a; --red:#ff6b81; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Tahoma,Arial,sans-serif; background:linear-gradient(135deg,#080c18,#11192d); color:var(--text); min-height:100vh; }
+    .wrap { max-width:1100px; margin:auto; padding:24px; }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+    h1 { margin:0; font-size:24px; }
+    .card { background:rgba(21,28,49,.96); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 18px 50px rgba(0,0,0,.25); }
+    .login { max-width:390px; margin:12vh auto; }
+    .grid { display:grid; grid-template-columns:1fr 1fr auto; gap:10px; margin-bottom:16px; }
+    input { width:100%; border:1px solid var(--line); background:#0d1324; color:var(--text); border-radius:9px; padding:11px 12px; outline:none; }
+    input:focus { border-color:var(--blue); }
+    button { border:0; border-radius:9px; padding:10px 14px; cursor:pointer; background:var(--blue); color:white; font-weight:bold; }
+    button.secondary { background:#34415f; }
+    button.danger { background:var(--red); }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { text-align:right; padding:11px 8px; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-size:13px; }
+    .usage { min-width:190px; }
+    .bar { height:7px; background:#29324d; border-radius:99px; overflow:hidden; margin-top:7px; }
+    .bar div { height:100%; background:var(--green); width:0; transition:.25s; }
+    .actions { display:flex; gap:6px; justify-content:flex-start; }
+    .hidden { display:none !important; }
+    .muted { color:var(--muted); }
+    .copy { background:#34415f; }
+    @media(max-width:760px) { .grid { grid-template-columns:1fr; } table { display:block; overflow-x:auto; } }
+  </style>
+</head>
+<body>
+  <div id="login" class="login card">
+    <h1>ورود به پنل</h1>
+    <p class="muted">رمز ورود را وارد کنید.</p>
+    <input id="password" type="password" placeholder="رمز پنل">
+    <button id="loginBtn" style="width:100%;margin-top:10px">ورود</button>
+  </div>
+
+  <div id="panel" class="wrap hidden">
+    <div class="top">
+      <h1>VLESS WS + TLS</h1>
+      <button id="logoutBtn" class="secondary">خروج</button>
+    </div>
+
+    <div class="card">
+      <div class="grid">
+        <input id="name" placeholder="نام کاربر">
+        <input id="limit" type="number" min="0" placeholder="حد GB">
+        <button id="addBtn">افزودن</button>
+      </div>
+
+      <table>
+        <thead><tr><th>کاربر</th><th>مصرف</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+        <tbody id="users"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function api(url, options = {}) {
+  const response = await fetch(url, options);
+  let data = {};
+  try { data = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error(data.error || 'خطای سرور');
+  return data;
+}
+
+async function checkSession() {
+  try {
+    const session = await api('/api/session');
+    $('login').classList.toggle('hidden', session.authenticated);
+    $('panel').classList.toggle('hidden', !session.authenticated);
+    if (session.authenticated) loadUsers();
+  } catch (_) {}
+}
+
+async function login() {
+  try {
+    await api('/api/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password:$('password').value})
+    });
+    await checkSession();
+  } catch (error) { alert(error.message); }
+}
+
+async function logout() {
+  await api('/api/logout', {method:'POST'});
+  await checkSession();
+}
+
+async function loadUsers() {
+  const users = await api('/api/users');
+  $('users').innerHTML = users.map(user => {
+    const total = (user.upload || 0) + (user.download || 0);
+    const percent = user.limit > 0 ? Math.min(100, total / user.limit * 100) : 0;
+    return `<tr>
+      <td><strong>${escapeHtml(user.name)}</strong><br><span class="muted">${escapeHtml(user.uuid)}</span></td>
+      <td class="usage">${user.totalHuman} / ${user.limitHuman}<div class="bar"><div style="width:${percent}%"></div></div></td>
+      <td>${user.enabled ? 'فعال' : 'غیرفعال'}</td>
+      <td><div class="actions">
+        <button class="copy" onclick="copyLink('${escapeAttr(user.link)}')">کپی</button>
+        <button class="secondary" onclick="toggleUser('${user.id}',${!user.enabled})">${user.enabled ? 'خاموش' : 'روشن'}</button>
+        <button class="secondary" onclick="resetUser('${user.id}')">ریست</button>
+        <button class="danger" onclick="deleteUser('${user.id}')">حذف</button>
+      </div></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" class="muted">کاربری وجود ندارد.</td></tr>';
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g,'&#96;');
+}
+
+async function addUser() {
+  const name = $('name').value.trim();
+  const gb = Number($('limit').value || 0);
+  if (!name) return alert('نام را وارد کنید');
+  try {
+    await api('/api/users', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, limit:gb > 0 ? gb * 1024 ** 3 : 536870912000})
+    });
+    $('name').value=''; $('limit').value=''; await loadUsers();
+  } catch (error) { alert(error.message); }
+}
+
+async function toggleUser(id, enabled) {
+  await api('/api/users/' + id, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+  await loadUsers();
+}
+
+async function resetUser(id) {
+  await api('/api/users/' + id + '/reset', {method:'POST'}); await loadUsers();
+}
+
+async function deleteUser(id) {
+  if (!confirm('حذف شود؟')) return;
+  await api('/api/users/' + id, {method:'DELETE'}); await loadUsers();
+}
+
+async function copyLink(link) {
+  await navigator.clipboard.writeText(link); alert('لینک کپی شد');
+}
+
+$('loginBtn').onclick = login;
+$('logoutBtn').onclick = logout;
+$('addBtn').onclick = addUser;
+$('password').onkeydown = event => { if (event.key === 'Enter') login(); };
+checkSession();
+setInterval(() => {
+  if (!$('panel').classList.contains('hidden')) loadUsers();
+}, 15000);
+</script>
+</body>
+</html>
