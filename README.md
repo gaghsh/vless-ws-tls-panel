@@ -1,35 +1,32 @@
 # VLESS WS + TLS Panel
 
-A minimal Node.js panel for creating and managing a **VLESS over WebSocket with TLS** profile.
+A small Node.js panel that manages VLESS users and generates an Xray configuration for **VLESS over WebSocket**. TLS is terminated by a reverse proxy such as Caddy; Xray listens on localhost only.
 
-## Features
+## Run
 
-- Password-protected panel
-- Create, enable, and disable VLESS users
-- Generate a standard `vless://` link
-- Base64 subscription output
-- In-memory usage counters
-- Optional Xray usage integration endpoint
+1. Install Node.js 18+ and Xray-core on a server you administer.
+2. `npm install`
+3. Copy `.env.example` to `.env`; set a strong `PANEL_PASSWORD`, your public `DOMAIN`, and a separate random `USAGE_TOKEN`.
+4. `npm start`
+5. The panel listens on `PORT` (default 3000). The generated Xray configuration is written to `data/xray-config.json`.
 
-## Run locally
+Keep `data/` private and persistent. Never commit `.env`, usage tokens, or generated Xray configuration. Put the panel behind HTTPS and restrict access to its admin URL.
 
-```bash
-npm install
-cp .env.example .env
-npm start
-```
+## Xray and TLS
 
-Open `http://localhost:3000`.
+The panel writes an Xray VLESS+WS configuration with per-user UUIDs. Xray listens on `127.0.0.1:10000` by default, with WebSocket path from `WS_PATH`. Configure your TLS reverse proxy to terminate TLS for `DOMAIN` and forward that WebSocket path to `http://127.0.0.1:10000`. Validate the generated file with `xray run -test -config data/xray-config.json`, then restart Xray after adding, disabling, or deleting a user so the changed client list is loaded.
 
-## Production
+This app deliberately does not install binaries or run privileged system commands. Configure and supervise Xray and the TLS reverse proxy through your server's normal service manager.
 
-Set these environment variables:
+## Traffic usage
 
-- `PANEL_PASSWORD`: panel login password
-- `DOMAIN`: public domain or hostname
-- `UUID`: shared VLESS UUID
-- `WS_PATH`: WebSocket path, for example `/vless`
-- `LIMIT_BYTES`: default traffic limit per user
-- `USAGE_TOKEN`: optional secret for usage update API
+Xray usage statistics are enabled in the generated config. The panel's `/api/usage` endpoint accepts cumulative `upload` and `download` byte counters for a user, identified by `id` or `uuid`, with `x-usage-token: $USAGE_TOKEN`. An external trusted collector must read the Xray Stats API and POST those counters; this repository does not yet include or automatically run that collector. Until connected, the panel's usage numbers remain zero. Limits are displayed but are not enforced by Xray.
 
-This project provides the control panel and link/subscription generator. Serve port 3000 behind Nginx/Caddy or a TLS reverse proxy, and run Xray-core with the matching WebSocket inbound. This is an implementation starting point, not a complete Xray installer.
+## API summary
+
+- `POST /api/login`, `POST /api/logout`
+- `GET /api/users`; `POST /api/users`; `PATCH /api/users/:id`; `DELETE /api/users/:id`
+- `POST /api/users/:id/reset`
+- `GET /api/subscription` (authenticated, base64-encoded links)
+- `GET /api/xray-config` (authenticated)
+- `POST /api/usage` (requires `USAGE_TOKEN`)
