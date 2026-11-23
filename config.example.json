@@ -1,0 +1,9 @@
+{
+  "PANEL_PASSWORD": "Set a strong panel password",
+  "DOMAIN": "Your public TLS hostname",
+  "WS_PATH": "/vless",
+  "XRAY_STATS_ADDRESS": "127.0.0.1:10085",
+  "XRAY_BIN": "xray",
+  "STATS_INTERVAL": 30,
+  "DATA_DIR": "./data"
+}
